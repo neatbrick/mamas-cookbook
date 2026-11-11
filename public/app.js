@@ -7,8 +7,16 @@
   try { recipes = JSON.parse(localStorage.getItem(localKey) || '[]'); if (!Array.isArray(recipes)) recipes = []; } catch { recipes = []; }
   if (window.RECIPE_KEEPER_CONFIG?.supabaseUrl && window.RECIPE_KEEPER_CONFIG?.supabaseAnonKey && window.supabase?.createClient) {
     supabase = window.supabase.createClient(window.RECIPE_KEEPER_CONFIG.supabaseUrl, window.RECIPE_KEEPER_CONFIG.supabaseAnonKey);
-    supabase.auth.getSession().then(({data}) => { user = data.session?.user || null; if (user) syncCloud(); });
-    supabase.auth.onAuthStateChange((_event, session) => { user = session?.user || null; if (user) syncCloud(); });
+    supabase.auth.getSession().then(({data}) => { user = data.session?.user || null; if (user) syncCloud(); updateAccountUI(); });
+    supabase.auth.onAuthStateChange((_event, session) => { user = session?.user || null; if (user) syncCloud(); else { syncEnabled = false; recipes = []; render(); } updateAccountUI(); });
+  }
+  function updateAccountUI() {
+    const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || '';
+    $('accountBtn').textContent = user ? '👤 ' + name : '👤 Sign in';
+    $('profilePanel').classList.toggle('hidden', !user);
+    $('loginPanel').classList.toggle('hidden', !!user);
+    $('profileName').textContent = name;
+    $('profileEmail').textContent = user?.email || '';
   }
   function toast(message) { $('toast').textContent = message; $('toast').classList.remove('hidden'); clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').classList.add('hidden'), 2800); }
   function persist() { localStorage.setItem(localKey, JSON.stringify(recipes)); render(); if (user && syncEnabled) syncOne(currentId).catch(e => console.warn('Cloud sync:', e.message)); }
@@ -96,6 +104,24 @@
   }
   $('usePaste').onclick = () => { try { const r = parsePasted($('pasteText').value); r.sourceUrl = $('recipeUrl').value.trim(); saveRecipe(r); $('pasteText').value=''; } catch(e) { toast(e.message); } };
   $('manualForm').addEventListener('submit', e => { e.preventDefault(); const ingredients = $('manualIngredients').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const instructions = $('manualSteps').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); if (!ingredients.length || !instructions.length) return toast('Add ingredients and instructions first.'); saveRecipe({title:$('manualTitle').value.trim(),prepTime:$('manualPrep').value,cookTime:$('manualCook').value,ingredients,instructions}); $('manualForm').reset(); });
+  $('googleSignIn').onclick = async () => {
+    if (!supabase) return $('authStatus').textContent = 'Cloud sync needs Supabase configuration.';
+    $('authStatus').textContent = 'Opening Google sign-in…';
+    const {error} = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+    if (error) $('authStatus').textContent = error.message;
+  };
+  $('signOut').onclick = async () => {
+    if (!supabase) return;
+    const {error} = await supabase.auth.signOut();
+    if (error) return $('authStatus').textContent = error.message;
+    user = null; syncEnabled = false; recipes = []; localStorage.removeItem(localKey);
+    updateAccountUI(); render();
+    $('authStatus').textContent = 'Signed out.';
+    $('authModal').classList.add('hidden');
+  };
   $('signIn').onclick = async () => { if (!supabase) return $('authStatus').textContent = 'Cloud sync has not been configured yet.'; const {error} = await supabase.auth.signInWithPassword({email:$('authEmail').value,password:$('authPassword').value}); $('authStatus').textContent = error?.message || 'Signed in. Syncing…'; };
   $('signUp').onclick = async () => { if (!supabase) return $('authStatus').textContent = 'Cloud sync has not been configured yet.'; const {error} = await supabase.auth.signUp({email:$('authEmail').value,password:$('authPassword').value}); $('authStatus').textContent = error?.message || 'Check your email to confirm your account.'; };
   $('authClose').onclick = () => $('authModal').classList.add('hidden');
@@ -103,5 +129,5 @@
   const params = new URLSearchParams(location.search); const shared = params.get('url') || params.get('text');
   if (params.get('shared') === '1' || shared) { const candidate = shared && shared.match(/https?:\/\/\S+/)?.[0]; if (candidate) { $('recipeUrl').value = candidate; setPage('import'); history.replaceState({}, '', '/'); } }
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('/sw.js').catch(console.warn);
-  render();
+  updateAccountUI(); render();
 })();
