@@ -1,4 +1,4 @@
-# Recipe Keeper
+# Mama's Cookbook
 
 A responsive installable PWA cookbook for iPhone, Android, and desktop. Includes a recipe library, search, favorites, interactive ingredient checklists, manual entry, recipe URL import, and optional Supabase cloud accounts/sync.
 

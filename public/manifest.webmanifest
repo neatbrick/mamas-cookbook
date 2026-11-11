@@ -1,6 +1,6 @@
 {
-  "name": "Recipe Keeper — Your Personal Cookbook",
-  "short_name": "Recipe Keeper",
+  "name": "Mama's Cookbook — Your Personal Cookbook",
+  "short_name": "Mama's Cookbook",
   "description": "Import, organize, and cook your favorite recipes.",
   "start_url": "/",
   "scope": "/",

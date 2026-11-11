@@ -157,4 +157,4 @@ app.post('/api/import', async (req, res) => {
 });
 app.get('/api/health', (_req, res) => res.json({ ok: true, aiEnabled: Boolean(openai) }));
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
-app.listen(PORT, () => console.log(`Recipe Keeper listening on port ${PORT}`));
+app.listen(PORT, () => console.log(`Mama's Cookbook listening on port ${PORT}`));
