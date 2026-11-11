@@ -54,5 +54,16 @@
 </main></div>
 <nav class="mobile-nav"><button data-page="recipes"><span>▤</span>My Recipes</button><button data-page="import"><span>＋</span>Add recipe</button><button data-page="favorites"><span>♡</span>Favorites</button></nav><div id="toast" class="toast hidden" role="status"></div>
 <div id="authModal" class="modalback hidden"><div class="modal" role="dialog" aria-modal="true" aria-label="Account profile"><button type="button" id="authX" class="modal-close" aria-label="Close profile window">×</button><div style="font-size:25px;margin-bottom:9px">☁</div><h2>Keep your cookbook in sync</h2><p class="muted small">Sign in to save recipes to your private cloud cookbook and access them on your other devices. You can keep using this browser without an account too.</p><div id="profilePanel" class="hidden"><h3 id="profileName" style="margin:12px 0 4px"></h3><p id="profileEmail" class="muted small"></p><button class="btn ghost" id="signOut" style="margin-top:10px;width:100%">Sign out</button></div><div id="loginPanel"><button class="btn ghost" id="googleSignIn" style="width:100%;margin:15px 0 6px;background:#fff;border:1px solid #dadce0;font-weight:650">🌐 Continue with Google</button><p class="muted small" style="text-align:center">or use email and password</p><label class="label">Email address</label><input class="field" type="email" id="authEmail" placeholder="you@example.com"><label class="label">Password</label><input class="field" type="password" id="authPassword" placeholder="At least 8 characters"><div class="row" style="margin-top:16px"><button class="btn primary" id="signIn">Sign in</button><button class="btn ghost" id="signUp">Create account</button></div></div><button class="back" id="authClose" style="margin-top:12px">Maybe later</button><div id="authStatus" class="status"></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/config.js"></script><script src="/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/config.js"></script><script>
+// Independent dialog dismissal, including on older installed PWAs.
+(function () {
+  const modal = document.getElementById('authModal');
+  const close = () => modal.classList.add('hidden');
+  document.getElementById('authX').addEventListener('click', close);
+  document.getElementById('authClose').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();
+</script>
+<script src="/app.js?v=5"></script>
 </body></html>
