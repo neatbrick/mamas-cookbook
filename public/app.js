@@ -77,7 +77,7 @@
     const r = { id: uid(), title: recipe.title || 'Untitled recipe', description: recipe.description || '', prepTime: recipe.prepTime || '', cookTime: recipe.cookTime || '', totalTime: recipe.totalTime || '', servings: recipe.servings || '', image: recipe.image || '', ingredients: (recipe.ingredients || []).map(x => ({name: typeof x === 'string' ? x : x.name, checked: false})), instructions: recipe.instructions || [], sourceUrl: recipe.sourceUrl || '', favorite: false, createdAt: new Date().toISOString() };
     recipes.unshift(r); currentId = r.id; persist(); setPage('recipes'); toast('Saved to My Recipes!');
   }
-  $('topAdd').onclick = $('addMain').onclick = $('emptyAdd').onclick = () => setPage('import');
+  $('addMain').onclick = $('emptyAdd').onclick = () => setPage('import');
   $('accountBtn').onclick = () => { $('authModal').classList.remove('hidden'); $('authStatus').textContent = supabase ? (user ? `Signed in as ${user.email}` : 'Sign in or create an account to enable cloud sync.') : 'Cloud sync needs Supabase project settings. See the setup guide.'; };
   document.querySelectorAll('[data-page]').forEach(b => b.addEventListener('click', () => setPage(b.dataset.page)));
   document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', () => setPage('recipes')));
