@@ -13,7 +13,7 @@
   function updateAccountUI() {
     const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || '';
     const fullName = String(user?.user_metadata?.full_name || user?.user_metadata?.name || '').trim();
-    const parts = fullName.split(/\\s+/).filter(Boolean);
+    const parts = fullName.split(/\s+/).filter(Boolean);
     const initials = parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]) : parts.length === 1 ? parts[0].slice(0, 2) : String(user?.email || '?').slice(0, 2);
     $('accountBtn').textContent = user ? initials.toLocaleUpperCase() : 'Sign in';
     $('accountBtn').classList.toggle('avatar-button', !!user);
