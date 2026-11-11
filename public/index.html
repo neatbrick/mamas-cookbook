@@ -21,6 +21,20 @@
   .top #accountBtn{max-width:none;min-width:0}
   .top #topAdd{max-width:none;white-space:nowrap}
 }
+
+/* Compact profile avatar and responsive single-row banner. */
+.top .brand{flex:1 1 auto;min-width:0}
+.top>div:last-child{flex:0 0 auto!important;justify-content:flex-end}
+.top #accountBtn.avatar-button{width:42px;height:42px;min-width:42px;max-width:42px;padding:0!important;border-radius:50%;display:grid;place-items:center;background:var(--soft);border:1px solid #cbd5bb;color:var(--accent-dark);font-size:13px!important;font-weight:800;letter-spacing:.4px;overflow:visible}
+@media(max-width:620px){
+ .top{flex-wrap:nowrap;gap:8px}
+ .top .brand{flex:1 1 auto;min-width:0}
+ .top>div:last-child{flex:0 0 auto;min-width:0}
+ .top .brand strong{font-size:clamp(16px,4.5vw,20px);white-space:normal;line-height:1.12}
+ .top .brand small{font-size:9px;letter-spacing:.7px;line-height:1.3}
+ .top .brandmark{flex:0 0 36px;width:36px;height:36px}
+ .top #accountBtn.avatar-button{width:38px;height:38px;min-width:38px;max-width:38px}
+}
 </style>
 </head>
 <body>
