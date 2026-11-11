@@ -130,7 +130,15 @@
   };
   $('signIn').onclick = async () => { if (!supabase) return $('authStatus').textContent = 'Cloud sync has not been configured yet.'; const {error} = await supabase.auth.signInWithPassword({email:$('authEmail').value,password:$('authPassword').value}); $('authStatus').textContent = error?.message || 'Signed in. Syncing…'; };
   $('signUp').onclick = async () => { if (!supabase) return $('authStatus').textContent = 'Cloud sync has not been configured yet.'; const {error} = await supabase.auth.signUp({email:$('authEmail').value,password:$('authPassword').value}); $('authStatus').textContent = error?.message || 'Check your email to confirm your account.'; };
-  $('authClose').onclick = () => $('authModal').classList.add('hidden');
+  function closeAuthModal() { $('authModal').classList.add('hidden'); }
+  $('authClose').onclick = closeAuthModal;
+  $('authX').onclick = closeAuthModal;
+  $('authModal').addEventListener('click', event => {
+    if (event.target === $('authModal')) closeAuthModal();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !$('authModal').classList.contains('hidden')) closeAuthModal();
+  });
   // Android/Chromium Web Share Target: a shared URL is passed to this app as a query parameter.
   const params = new URLSearchParams(location.search); const shared = params.get('url') || params.get('text');
   if (params.get('shared') === '1' || shared) { const candidate = shared && shared.match(/https?:\/\/\S+/)?.[0]; if (candidate) { $('recipeUrl').value = candidate; setPage('import'); history.replaceState({}, '', '/'); } }
