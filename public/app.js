@@ -2,7 +2,7 @@
   const $ = id => document.getElementById(id);
   const decodeEntities = value => {
     const text = String(value ?? '');
-    if (!/&(?:#\\d+|#x[\\da-f]+|[a-z][\\da-z]+);/i.test(text)) return text;
+    if (!/&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/i.test(text)) return text;
     const textarea = document.createElement('textarea');
     textarea.innerHTML = text;
     return textarea.value.replace(/\u00a0/g, ' ');
