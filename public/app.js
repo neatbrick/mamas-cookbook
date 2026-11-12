@@ -11,6 +11,12 @@
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   let recipes = [], currentId = null, page = 'recipes', supabase = null, user = null, syncEnabled = false;
   const localKey = 'recipe-keeper-recipes-v1';
+  const deletedKey = 'recipe-keeper-deleted-v1';
+  let deletedIds = new Set();
+  try { deletedIds = new Set(JSON.parse(localStorage.getItem(deletedKey) || '[]')); } catch {}
+  const rememberDeleted = id => { deletedIds.add(id); localStorage.setItem(deletedKey, JSON.stringify([...deletedIds])); };
+  const forgetDeleted = id => { deletedIds.delete(id); localStorage.setItem(deletedKey, JSON.stringify([...deletedIds])); };
+  let syncGeneration = 0;
   try { recipes = JSON.parse(localStorage.getItem(localKey) || '[]'); if (!Array.isArray(recipes)) recipes = []; } catch { recipes = []; }
   if (window.RECIPE_KEEPER_CONFIG?.supabaseUrl && window.RECIPE_KEEPER_CONFIG?.supabaseAnonKey && window.supabase?.createClient) {
     supabase = window.supabase.createClient(window.RECIPE_KEEPER_CONFIG.supabaseUrl, window.RECIPE_KEEPER_CONFIG.supabaseAnonKey);
@@ -40,14 +46,30 @@
   }
   async function syncCloud() {
     if (!supabase || !user) return;
+    const generation = ++syncGeneration;
+    const activeUser = user;
     $('authStatus').textContent = 'Syncing your cookbook…';
-    const { data, error } = await supabase.from('recipes').select('recipe,updated_at').order('updated_at', {ascending:false});
+    const { data, error } = await supabase.from('recipes').select('recipe,updated_at').eq('user_id', activeUser.id).order('updated_at', {ascending:false});
     if (error) { $('authStatus').textContent = error.message; return; }
-    const cloud = (data || []).map(row => row.recipe).filter(Boolean);
+    if (generation !== syncGeneration || user?.id !== activeUser.id) return;
+    // Tombstones prevent deleted recipes from returning during cloud/local merging.
+    const pendingDeletes = [...deletedIds];
+    if (pendingDeletes.length) {
+      const { error: deleteError } = await supabase.from('recipes').delete().eq('user_id', activeUser.id).in('id', pendingDeletes);
+      if (deleteError) console.warn('Pending recipe deletion:', deleteError.message);
+      else pendingDeletes.forEach(forgetDeleted);
+    }
+    if (generation !== syncGeneration || user?.id !== activeUser.id) return;
+    const cloud = (data || []).map(row => row.recipe).filter(r => r && !deletedIds.has(r.id) && !pendingDeletes.includes(r.id));
     const map = new Map(cloud.map(r => [r.id, r]));
-    for (const local of recipes) if (!map.has(local.id)) map.set(local.id, local);
+    for (const local of recipes) if (!map.has(local.id) && !deletedIds.has(local.id) && !pendingDeletes.includes(local.id)) map.set(local.id, local);
     recipes = [...map.values()]; localStorage.setItem(localKey, JSON.stringify(recipes)); syncEnabled = true;
-    for (const r of recipes) { try { await syncOne(r.id); } catch (e) { console.warn(e.message); } }
+    for (const r of recipes) {
+      if (generation !== syncGeneration || user?.id !== activeUser.id) return;
+      if (deletedIds.has(r.id)) continue;
+      try { await syncOne(r.id); } catch (e) { console.warn(e.message); }
+    }
+    if (generation !== syncGeneration || user?.id !== activeUser.id) return;
     $('authStatus').textContent = `Signed in as ${user.email}`; render();
   }
   function setPage(next) {
@@ -126,7 +148,30 @@
       $('servingPlus').onclick=()=>{ if(chosenServings<100){servingChoices.set(id,chosenServings+1);showDetail(id);} };
     }
     $('favoriteBtn').onclick = () => { r.favorite = !r.favorite; persist(); showDetail(id); };
-    $('deleteBtn').onclick = async () => { if (!confirm('Delete this recipe from your cookbook?')) return; recipes = recipes.filter(x => x.id !== id); localStorage.setItem(localKey, JSON.stringify(recipes)); if (user && supabase) await supabase.from('recipes').delete().eq('id', id).eq('user_id', user.id); currentId = null; setPage('recipes'); toast('Recipe deleted.'); };
+    $('deleteBtn').onclick = async () => {
+      if (!confirm('Permanently delete this recipe? This cannot be undone.')) return;
+      const button = $('deleteBtn');
+      button.disabled = true;
+      button.textContent = 'Deleting…';
+      rememberDeleted(id);
+      recipes = recipes.filter(x => x.id !== id);
+      localStorage.setItem(localKey, JSON.stringify(recipes));
+      currentId = null;
+      setPage('recipes');
+      if (user && supabase) {
+        try {
+          const {error} = await supabase.from('recipes').delete().eq('id', id).eq('user_id', user.id);
+          if (error) throw error;
+          forgetDeleted(id);
+          toast('Recipe permanently deleted.');
+        } catch (error) {
+          console.warn('Cloud deletion will retry:', error);
+          toast('Removed here. Cloud deletion will retry when you sync.');
+        }
+      } else {
+        toast('Recipe permanently deleted.');
+      }
+    };
     function updateProgress() { const n = r.ingredients.filter(x => x.checked).length; $('ingredientCount').textContent = `${n}/${r.ingredients.length} checked`; $('ingredientProgress').style.width = `${r.ingredients.length ? n/r.ingredients.length*100 : 0}%`; }
     $('ingredients').querySelectorAll('[data-ingredient]').forEach(input => input.addEventListener('change', () => { r.ingredients[Number(input.dataset.ingredient)].checked = input.checked; input.closest('label').classList.toggle('checked', input.checked); updateProgress(); persist(); }));
     $('resetIngredients').onclick = () => { r.ingredients.forEach(x => x.checked = false); persist(); showDetail(id); };
