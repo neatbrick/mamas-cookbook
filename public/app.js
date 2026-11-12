@@ -1,6 +1,13 @@
 (() => {
   const $ = id => document.getElementById(id);
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const decodeEntities = value => {
+    const text = String(value ?? '');
+    if (!/&(?:#\\d+|#x[\\da-f]+|[a-z][\\da-z]+);/i.test(text)) return text;
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    return textarea.value.replace(/\u00a0/g, ' ');
+  };
+  const escapeHtml = value => decodeEntities(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   let recipes = [], currentId = null, page = 'recipes', supabase = null, user = null, syncEnabled = false;
   const localKey = 'recipe-keeper-recipes-v1';
@@ -125,7 +132,7 @@
     $('resetIngredients').onclick = () => { r.ingredients.forEach(x => x.checked = false); persist(); showDetail(id); };
   }
   function saveRecipe(recipe) {
-    const r = { id: uid(), title: recipe.title || 'Untitled recipe', description: recipe.description || '', prepTime: recipe.prepTime || '', cookTime: recipe.cookTime || '', totalTime: recipe.totalTime || '', servings: recipe.servings || '', image: recipe.image || '', ingredients: (recipe.ingredients || []).map(x => ({name: typeof x === 'string' ? x : x.name, checked: false})), instructions: recipe.instructions || [], sourceUrl: recipe.sourceUrl || '', favorite: false, createdAt: new Date().toISOString() };
+    const r = { id: uid(), title: decodeEntities(recipe.title || 'Untitled recipe'), description: decodeEntities(recipe.description || ''), prepTime: recipe.prepTime || '', cookTime: recipe.cookTime || '', totalTime: recipe.totalTime || '', servings: recipe.servings || '', image: recipe.image || '', ingredients: (recipe.ingredients || []).map(x => ({name: decodeEntities(typeof x === 'string' ? x : x.name), checked: false})), instructions: (recipe.instructions || []).map(decodeEntities), sourceUrl: recipe.sourceUrl || '', favorite: false, createdAt: new Date().toISOString() };
     recipes.unshift(r); currentId = r.id; persist(); setPage('recipes'); toast('Saved to My Recipes!');
   }
   $('addMain').onclick = $('emptyAdd').onclick = () => setPage('import');
