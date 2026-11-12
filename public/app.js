@@ -64,15 +64,60 @@
     const favorites = recipes.filter(r => r.favorite);
     $('favoriteGrid').innerHTML = favorites.length ? favorites.map(card).join('') : '<p class="muted small">No favorites yet. Open a recipe and tap the heart to save it here.</p>';
   }
+
+  const servingChoices = new Map();
+  const fractionMap = {'½':.5,'⅓':1/3,'⅔':2/3,'¼':.25,'¾':.75,'⅛':.125,'⅜':.375,'⅝':.625,'⅞':.875};
+  function parseAmount(t) {
+    t=String(t).trim();
+    if (fractionMap[t]!==undefined) return fractionMap[t];
+    let m=t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+    if(m) return +m[1]+(+m[2]/+m[3]);
+    m=t.match(/^(\d+)([½⅓⅔¼¾⅛⅜⅝⅞])$/);
+    if(m) return +m[1]+fractionMap[m[2]];
+    m=t.match(/^(\d+)\/(\d+)$/);
+    if(m) return +m[1]/+m[2];
+    return /^\d+(\.\d+)?$/.test(t) ? +t : null;
+  }
+  function formatAmount(n) {
+    const whole=Math.floor(n+0.00001), rem=n-whole;
+    const fractions=[[.125,'⅛'],[.25,'¼'],[1/3,'⅓'],[.375,'⅜'],[.5,'½'],[.625,'⅝'],[2/3,'⅔'],[.75,'¾'],[.875,'⅞']];
+    if(rem<.015) return String(whole);
+    const match=fractions.find(f=>Math.abs(f[0]-rem)<.015);
+    if(match) return (whole?whole+' ':'')+match[1];
+    return String(+n.toFixed(2));
+  }
+  function scaleIngredient(value,factor) {
+    const text=String(value);
+    if(factor===1) return text;
+    const number='(?:\\d+\\s+\\d+\\/\\d+|\\d+[½⅓⅔¼¾⅛⅜⅝⅞]|\\d+\\/\\d+|\\d+(?:\\.\\d+)?|[½⅓⅔¼¾⅛⅜⅝⅞])';
+    const re=new RegExp('^(\\s*)(about\\s+|approx(?:imately)?\\.?\\s+)?('+number+')(\\s*(?:-|–|to)\\s*('+number+'))?','i');
+    const m=text.match(re);
+    if(!m) return text;
+    const first=parseAmount(m[3]), second=m[5]?parseAmount(m[5]):null;
+    if(first===null || (m[5] && second===null)) return text;
+    return m[1]+(m[2]||'')+formatAmount(first*factor)+(m[5]?'–'+formatAmount(second*factor):'')+text.slice(m[0].length);
+  }
+  function baseServingCount(value) {
+    const m=String(value||'').match(/\d+(?:\.\d+)?/);
+    return m && +m[0]>0 ? +m[0] : null;
+  }
+
   function showDetail(id) {
     currentId = id; const r = recipes.find(x => x.id === id); if (!r) return;
     setPage('detail');
+    const baseServings=baseServingCount(r.servings);
+    const chosenServings=baseServings ? (servingChoices.get(id) || baseServings) : null;
+    const multiplier=baseServings ? chosenServings/baseServings : 1;
     const checked = (r.ingredients || []).filter(x => x.checked).length, total = (r.ingredients || []).length;
     $('detail').innerHTML = `<div class="recipe-detail-top"><div><div class="eyebrow">FROM YOUR COOKBOOK</div><h1>${escapeHtml(r.title)}</h1><p class="muted small">${escapeHtml(r.description || '')}</p></div><div style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn ghost" id="favoriteBtn">${r.favorite ? '♥ Saved' : '♡ Favorite'}</button><button class="btn ghost" id="deleteBtn">Delete</button></div></div>
-      <div class="stats"><div class="stat"><small>Prep time</small><b>${escapeHtml(r.prepTime || '—')}</b></div><div class="stat"><small>Cook time</small><b>${escapeHtml(r.cookTime || '—')}</b></div><div class="stat"><small>Servings</small><b>${escapeHtml(r.servings || '—')}</b></div></div>
-      <div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><h2>Ingredients</h2><span class="pill" id="ingredientCount">${checked}/${total} checked</span></div><div class="progress"><span id="ingredientProgress" style="width:${total ? checked/total*100 : 0}%"></span></div><p class="muted small">Check off each ingredient as you gather or add it.</p><div id="ingredients">${(r.ingredients||[]).map((item,i)=>`<label class="ingredient ${item.checked?'checked':''}"><input type="checkbox" data-ingredient="${i}" ${item.checked?'checked':''}><span>${escapeHtml(item.name || item)}</span></label>`).join('') || '<p class="muted small">No ingredients added.</p>'}</div><button class="btn ghost" id="resetIngredients" style="margin-top:12px;font-size:11px;padding:8px 11px">Reset checkboxes</button></div>
+      <div class="stats"><div class="stat"><small>Prep time</small><b>${escapeHtml(r.prepTime || '—')}</b></div><div class="stat"><small>Cook time</small><b>${escapeHtml(r.cookTime || '—')}</b></div><div class="stat"><small>Servings</small>${baseServings ? `<div class="serving-controls"><button type="button" id="servingMinus" aria-label="Decrease servings" ${chosenServings<=1?'disabled':''}>−</button><b>${chosenServings}</b><button type="button" id="servingPlus" aria-label="Increase servings" ${chosenServings>=100?'disabled':''}>+</button></div>` : `<b>${escapeHtml(r.servings || '—')}</b>`}</div></div>
+      <div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><h2>Ingredients</h2><span class="pill" id="ingredientCount">${checked}/${total} checked</span></div><div class="progress"><span id="ingredientProgress" style="width:${total ? checked/total*100 : 0}%"></span></div><p class="muted small">Check off each ingredient as you gather or add it.</p><div id="ingredients">${(r.ingredients||[]).map((item,i)=>`<label class="ingredient ${item.checked?'checked':''}"><input type="checkbox" data-ingredient="${i}" ${item.checked?'checked':''}><span>${escapeHtml(scaleIngredient(item.name || item,multiplier))}</span></label>`).join('') || '<p class="muted small">No ingredients added.</p>'}</div><button class="btn ghost" id="resetIngredients" style="margin-top:12px;font-size:11px;padding:8px 11px">Reset checkboxes</button></div>
       <div class="panel"><h2>Instructions</h2>${(r.instructions||[]).map((step,i)=>`<div class="step"><div class="stepnum">${i+1}</div><div>${escapeHtml(step)}</div></div>`).join('') || '<p class="muted small">No instructions added.</p>'}</div>
       ${r.sourceUrl ? `<p class="muted small">Original recipe: <a href="${escapeHtml(r.sourceUrl)}" target="_blank" rel="noopener noreferrer">View website ↗</a></p>` : ''}`;
+    if (baseServings) {
+      $('servingMinus').onclick=()=>{ if(chosenServings>1){servingChoices.set(id,chosenServings-1);showDetail(id);} };
+      $('servingPlus').onclick=()=>{ if(chosenServings<100){servingChoices.set(id,chosenServings+1);showDetail(id);} };
+    }
     $('favoriteBtn').onclick = () => { r.favorite = !r.favorite; persist(); showDetail(id); };
     $('deleteBtn').onclick = async () => { if (!confirm('Delete this recipe from your cookbook?')) return; recipes = recipes.filter(x => x.id !== id); localStorage.setItem(localKey, JSON.stringify(recipes)); if (user && supabase) await supabase.from('recipes').delete().eq('id', id).eq('user_id', user.id); currentId = null; setPage('recipes'); toast('Recipe deleted.'); };
     function updateProgress() { const n = r.ingredients.filter(x => x.checked).length; $('ingredientCount').textContent = `${n}/${r.ingredients.length} checked`; $('ingredientProgress').style.width = `${r.ingredients.length ? n/r.ingredients.length*100 : 0}%`; }
