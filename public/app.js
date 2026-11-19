@@ -246,9 +246,24 @@
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !$('authModal').classList.contains('hidden')) closeAuthModal();
   });
+  // Browser bookmarklet extracts public Recipe JSON-LD from the page the user is viewing.
+  const bookmarklet = "javascript:(function(){try{var found=null;function walk(x){if(!x||typeof x!=='object')return;if(Array.isArray(x)){x.forEach(walk);return}var t=x['@type'];if((Array.isArray(t)?t:[t]).includes('Recipe')&&!found)found=x;Object.keys(x).forEach(function(k){if(k==='@graph'||k==='mainEntity')walk(x[k])})}document.querySelectorAll('script[type=\"application/ld+json\"]').forEach(function(s){try{walk(JSON.parse(s.textContent))}catch(e){}});if(!found){alert('No recipe card data found on this page. Try a different recipe page.');return}function txt(v){return Array.isArray(v)?v.map(txt).join(', '):v&&typeof v==='object'?(v.text||v.name||''):String(v||'')}var steps=[];function add(v){if(Array.isArray(v)){v.forEach(add);return}if(v&&typeof v==='object'){if(v.itemListElement){add(v.itemListElement);return}if(v.text||v.name)steps.push(txt(v.text||v.name));return}if(v)steps.push(txt(v))}add(found.recipeInstructions);var recipe={title:txt(found.name),description:txt(found.description),ingredients:(found.recipeIngredient||[]).map(txt),instructions:steps,servings:txt(found.recipeYield),prepTime:txt(found.prepTime),cookTime:txt(found.cookTime),totalTime:txt(found.totalTime),image:typeof found.image==='string'?found.image:Array.isArray(found.image)?txt(found.image[0]):found.image&&found.image.url||'',sourceUrl:location.href};if(!recipe.ingredients.length||!recipe.instructions.length){alert('Recipe card is incomplete. Try another page.');return}var url='https://recipe-keeper-9uls.onrender.com/#sharedRecipe='+encodeURIComponent(JSON.stringify(recipe));if(url.length>30000){alert('Recipe is too large for one-click sharing.');return}window.open(url,'_blank')}catch(e){alert('Could not read recipe: '+e.message)}})();";
+  const bookmarkletLink = $('bookmarkletLink');
+  bookmarkletLink.href = bookmarklet;
+  bookmarkletLink.addEventListener('click', event => { event.preventDefault(); toast('Drag this button to your bookmarks bar, then use it on a recipe website.'); });
   // Android/Chromium Web Share Target: a shared URL is passed to this app as a query parameter.
   const params = new URLSearchParams(location.search); const shared = params.get('url') || params.get('text');
   if (params.get('shared') === '1' || shared) { const candidate = shared && shared.match(/https?:\/\/\S+/)?.[0]; if (candidate) { $('recipeUrl').value = candidate; setPage('import'); history.replaceState({}, '', '/'); } }
+  const sharedRecipeHash = location.hash.startsWith('#sharedRecipe=') ? location.hash.slice('#sharedRecipe='.length) : null;
+  if (sharedRecipeHash) {
+    history.replaceState({}, '', location.pathname);
+    try {
+      if (sharedRecipeHash.length > 30000) throw new Error('Shared recipe is too large.');
+      const imported = JSON.parse(decodeURIComponent(sharedRecipeHash));
+      if (!imported || !Array.isArray(imported.ingredients) || !Array.isArray(imported.instructions) || !imported.ingredients.length || !imported.instructions.length) throw new Error('Shared recipe is incomplete.');
+      if (confirm('Save "' + String(imported.title || 'Shared recipe').slice(0, 100) + '" to My Recipes?')) saveRecipe(imported);
+    } catch (error) { toast('Could not read shared recipe: ' + error.message); setPage('import'); }
+  }
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('/sw.js').catch(console.warn);
   updateAccountUI(); render();
 })();
