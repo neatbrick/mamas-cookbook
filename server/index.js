@@ -5,6 +5,8 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import ipaddr from 'ipaddr.js';
 import OpenAI from 'openai';
+import { chromium } from 'playwright';
+import { PDFParse } from 'pdf-parse';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,6 +66,57 @@ async function safeFetch(input) {
     return { html, finalUrl: current.toString() };
   }
   throw new Error('The website redirected too many times.');
+}
+// Best-effort PDF fallback. The browser never bypasses a site's access restrictions.
+async function browserPdfFallback(input) {
+  const url = new URL(input);
+  await assertPublicHost(url.hostname);
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false });
+    const page = await context.newPage();
+    // Validate every browser request, including redirects and embedded resources, to prevent SSRF.
+    await page.route('**/*', async route => {
+      try {
+        const target = new URL(route.request().url());
+        if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password) return route.abort();
+        await assertPublicHost(target.hostname);
+        if (route.request().resourceType() !== 'document' && !['stylesheet', 'font'].includes(route.request().resourceType())) return route.abort();
+        await route.continue();
+      } catch { await route.abort(); }
+    });
+    const response = await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 18000 });
+    if (!response || !response.ok()) return null;
+    const finalUrl = new URL(page.url());
+    await assertPublicHost(finalUrl.hostname);
+    const html = await page.content();
+    if (html.length > 5_000_000) return null;
+    const pdf = await page.pdf({ format: 'A4', printBackground: false, timeout: 12000 });
+    if (pdf.length > 5_000_000) return null;
+    const parser = new PDFParse({ data: pdf });
+    try {
+      const extracted = await parser.getText();
+      return { html, pdfText: String(extracted.text || '').slice(0, 22000), finalUrl: finalUrl.toString() };
+    } finally { await parser.destroy(); }
+  } catch (error) {
+    console.warn('PDF fallback unavailable:', error.message);
+    return null;
+  } finally { if (browser) await browser.close(); }
+}
+async function aiExtractPdf(text, url) {
+  if (!openai || !text.trim()) return null;
+  const completion = await openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: 'Extract the cooking recipe from PDF text. Return JSON keys title, description, prepTime, cookTime, totalTime, servings, ingredients (array of strings), instructions (array of ordered step strings), image (empty string). Never invent ingredients or instructions. Ignore unrelated page content. If no complete recipe is present, return empty ingredients and instructions.' },
+      { role: 'user', content: 'Source: ' + url + '\\nPDF text:\\n' + text }
+    ]
+  });
+  const result = JSON.parse(completion.choices[0]?.message?.content || '{}');
+  return { ...result, ingredients: Array.isArray(result.ingredients) ? result.ingredients : [], instructions: Array.isArray(result.instructions) ? result.instructions : [], sourceUrl: url, extractionMethod: 'browser-pdf-ai' };
 }
 function findRecipe(node) {
   if (!node) return null;
@@ -145,7 +198,15 @@ app.post('/api/import', async (req, res) => {
     let parsed;
     try { parsed = new URL(rawUrl); } catch { return res.status(400).json({ error: 'That URL is not valid.' }); }
     if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only HTTP and HTTPS URLs are supported.' });
-    const { html, finalUrl } = await safeFetch(parsed.toString());
+    let html, finalUrl, pdfText = '';
+    try {
+      ({ html, finalUrl } = await safeFetch(parsed.toString()));
+    } catch (error) {
+      if (error.code !== 'SOURCE_BLOCKED' || error.sourceStatus !== 403) throw error;
+      const fallback = await browserPdfFallback(parsed.toString());
+      if (!fallback) throw error;
+      ({ html, finalUrl, pdfText } = fallback);
+    }
     const $ = cheerio.load(html);
     const structured = structuredRecipe($);
     let recipe = structured ? normalizeStructured(structured, finalUrl) : null;
