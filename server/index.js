@@ -46,6 +46,14 @@ async function safeFetch(input) {
       if (!['http:', 'https:'].includes(current.protocol)) throw new Error('Unsupported redirect protocol.');
       continue;
     }
+    if (response.status === 403 || response.status === 401 || response.status === 429) {
+      const error = new Error(response.status === 429
+        ? 'This recipe website is limiting automated requests. Open the recipe in your browser and paste its text below.'
+        : 'This recipe website blocks automated imports. Open the recipe in your browser and paste its text below.');
+      error.code = 'SOURCE_BLOCKED';
+      error.sourceStatus = response.status;
+      throw error;
+    }
     if (!response.ok) throw new Error(`The website returned HTTP ${response.status}.`);
     const type = response.headers.get('content-type') || '';
     if (!type.includes('text/html') && !type.includes('application/xhtml+xml')) throw new Error('That link did not return a recipe webpage.');
@@ -151,8 +159,8 @@ app.post('/api/import', async (req, res) => {
     res.json({ recipe });
   } catch (error) {
     console.error('Recipe import failed:', error.message);
-    const status = /non-public|Local network|protocol|credentials/i.test(error.message) ? 400 : 502;
-    res.status(status).json({ error: error.message || 'Could not import this recipe.' });
+    const status = error.code === 'SOURCE_BLOCKED' ? 422 : /non-public|Local network|protocol|credentials/i.test(error.message) ? 400 : 502;
+    res.status(status).json({ error: error.message || 'Could not import this recipe.', code: error.code || 'IMPORT_FAILED' });
   }
 });
 app.get('/api/health', (_req, res) => res.json({ ok: true, aiEnabled: Boolean(openai) }));
