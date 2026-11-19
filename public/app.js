@@ -191,9 +191,19 @@
     e.preventDefault(); const url = $('recipeUrl').value.trim(); const button = $('importBtn'); button.disabled = true; button.textContent = 'Importing…'; $('importStatus').textContent = 'Fetching the recipe page and extracting its ingredients and steps…';
     try {
       const response = await fetch('/api/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Recipe import failed.');
+      const data = await response.json(); if (!response.ok) { const error = new Error(data.error || 'Recipe import failed.'); error.code = data.code; throw error; }
       saveRecipe(data.recipe); $('recipeUrl').value = '';
-    } catch (error) { $('importStatus').textContent = error.message; toast('Could not import that page. Try pasting the recipe text.'); }
+    } catch (error) {
+      $('importStatus').textContent = error.message;
+      if (error.code === 'SOURCE_BLOCKED') {
+        $('importStatus').textContent += ' Use the Paste recipe text section below; your recipe URL will be kept as its source.';
+        $('pasteText').focus({preventScroll:true});
+        $('pasteText').scrollIntoView({behavior:'smooth',block:'center'});
+        toast('Website blocked automatic import. Paste the recipe text instead.');
+      } else {
+        toast('Could not import that page. Try pasting the recipe text.');
+      }
+    }
     finally { button.disabled = false; button.textContent = 'Import recipe →'; }
   });
   function parsePasted(text) {
