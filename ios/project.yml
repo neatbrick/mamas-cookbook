@@ -1,0 +1,29 @@
+name: MamasCookbook
+options:
+  bundleIdPrefix: com.mamascookbook
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+targets:
+  MamasCookbook:
+    type: application
+    platform: iOS
+    sources: [MamasCookbook]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mamascookbook.app
+        INFOPLIST_FILE: MamasCookbook/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MamasCookbook/MamasCookbook.entitlements
+    dependencies:
+      - target: CookbookShare
+  CookbookShare:
+    type: app-extension
+    platform: iOS
+    sources: [CookbookShare]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mamascookbook.app.share
+        INFOPLIST_FILE: CookbookShare/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CookbookShare/CookbookShare.entitlements
