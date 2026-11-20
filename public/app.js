@@ -206,6 +206,83 @@
     }
     finally { button.disabled = false; button.textContent = 'Import recipe →'; }
   });
+  // Client-side extraction avoids server-side website restrictions and paid AI APIs.
+  async function loadPdfJs() {
+    const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+    return pdfjs;
+  }
+  async function loadOcr() {
+    if (!window.Tesseract) {
+      await new Promise((resolve,reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+        script.onload = resolve; script.onerror = () => reject(new Error('Could not load the OCR library. Check your connection.'));
+        document.head.appendChild(script);
+      });
+    }
+    return window.Tesseract;
+  }
+  $('extractFiles').onclick = async () => {
+    const files = Array.from($('recipeFiles').files || []);
+    const status = $('fileImportStatus'), button = $('extractFiles');
+    if (!files.length) return status.textContent = 'Choose a PDF or screenshot first.';
+    if (files.length > 8 || files.some(f => f.size > 15 * 1024 * 1024)) return status.textContent = 'Choose up to 8 files, each under 15 MB.';
+    button.disabled = true;
+    let worker;
+    try {
+      const parts = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        status.textContent = 'Reading ' + file.name + ' (' + (i + 1) + '/' + files.length + ')…';
+        if (file.type === 'application/pdf' || /\\.pdf$/i.test(file.name)) {
+          const pdfjs = await loadPdfJs();
+          const pdf = await pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())}).promise;
+          if (pdf.numPages > 15) throw new Error('PDF has too many pages (maximum 15).');
+          for (let p = 1; p <= pdf.numPages; p++) {
+            const page = await pdf.getPage(p);
+            const content = await page.getTextContent();
+            let text = '', previousY = null;
+            for (const item of content.items) {
+              if (!('str' in item)) continue;
+              const y = item.transform?.[5];
+              if (previousY !== null && Math.abs(y - previousY) > 3) text += '\\n';
+              else if (text && !text.endsWith('\\n')) text += ' ';
+              text += item.str;
+              previousY = y;
+            }
+            if (text.trim().length < 60) {
+              status.textContent = 'Reading scanned PDF page ' + p + ' with OCR…';
+              const t = await loadOcr();
+              if (!worker) worker = await t.createWorker('eng');
+              const viewport = page.getViewport({scale: 1.5});
+              const canvas = document.createElement('canvas');
+              canvas.width = viewport.width; canvas.height = viewport.height;
+              await page.render({canvasContext: canvas.getContext('2d'), viewport}).promise;
+              text = (await worker.recognize(canvas)).data.text;
+            }
+            parts.push(text);
+          }
+          await pdf.destroy();
+        } else if (file.type.startsWith('image/') || /\\.(png|jpe?g|webp)$/i.test(file.name)) {
+          const t = await loadOcr();
+          if (!worker) worker = await t.createWorker('eng');
+          parts.push((await worker.recognize(file)).data.text);
+        } else throw new Error('Unsupported file type: ' + file.name);
+      }
+      const extracted = parts.join('\\n\\n').trim();
+      if (!extracted) throw new Error('No readable text found. Try a clearer screenshot.');
+      $('pasteText').value = extracted;
+      status.textContent = 'Text extracted! Review and correct the text in “Paste recipe text”, then click “Format pasted recipe”. No AI credits used.';
+      $('pasteText').scrollIntoView({behavior:'smooth',block:'center'});
+      toast('Recipe text extracted. Review it before saving.');
+    } catch (error) {
+      status.textContent = error.message || 'Could not read this file.';
+    } finally {
+      if (worker) await worker.terminate();
+      button.disabled = false;
+    }
+  };
   function parsePasted(text) {
     const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
     const ingredientStart = lines.findIndex(x => /ingredients/i.test(x));
