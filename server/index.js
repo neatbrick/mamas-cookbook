@@ -175,6 +175,37 @@ function pageText($) {
   clone('script,style,noscript,svg,nav,footer,header,aside,form,iframe,button,[aria-hidden="true"],. 광고,.advertisement,.comments,.comment,.related-posts').remove();
   return clone('body').text().replace(/\s+/g, ' ').trim().slice(0, 22000);
 }
+
+function localRecipeFromHtml($, url) {
+  const selectors = ['.wprm-recipe-container', '.tasty-recipes', '.mv-create-card', '.easyrecipe', '[itemtype*="schema.org/Recipe"]'];
+  const root = $(selectors.join(',')).first();
+  const scope = root.length ? root : $('body');
+  const readItems = (selectors) => {
+    for (const selector of selectors) {
+      const items = scope.find(selector).map((_, el) => $(el).text().replace(/\\s+/g, ' ').trim()).get().filter(Boolean);
+      if (items.length) return [...new Set(items)].slice(0, 100);
+    }
+    return [];
+  };
+  const ingredients = readItems(['.wprm-recipe-ingredient', '.tasty-recipes-ingredients li', '.mv-create-ingredients li', '[itemprop="recipeIngredient"]']);
+  const instructions = readItems(['.wprm-recipe-instruction-text', '.tasty-recipes-instructions li', '.mv-create-instructions li', '[itemprop="recipeInstructions"] li', '[itemprop="recipeInstructions"]']);
+  if (!ingredients.length || !instructions.length) return null;
+  return { title: scope.find('.wprm-recipe-name,.tasty-recipes-title,.mv-create-title,[itemprop="name"]').first().text().trim() || $('h1').first().text().trim() || 'Imported recipe', description: '', prepTime: '', cookTime: '', totalTime: '', servings: scope.find('.wprm-recipe-servings,.tasty-recipes-yield').first().text().trim(), image: '', ingredients, instructions, sourceUrl: url, extractionMethod: 'local-html' };
+}
+function localRecipeFromPdf(text, url) {
+  const lines = text.split(/\\r?\\n/).map(x => x.trim()).filter(Boolean);
+  const ingredientsAt = lines.findIndex(x => /^(ingredients|what you need)\\s*:?$/i.test(x));
+  const instructionsAt = lines.findIndex((x,i) => i > ingredientsAt && /^(instructions|directions|method|steps|preparation)\\s*:?$/i.test(x));
+  if (ingredientsAt < 0 || instructionsAt < 0) return null;
+  const ingredients = lines.slice(ingredientsAt + 1, instructionsAt).filter(x => x.length < 250).slice(0, 100);
+  const instructions = lines.slice(instructionsAt + 1).filter(x => x.length > 10).slice(0, 80);
+  if (!ingredients.length || !instructions.length) return null;
+  return { title: lines[0] || 'Imported recipe', description: '', prepTime: '', cookTime: '', totalTime: '', servings: '', image: '', ingredients, instructions, sourceUrl: url, extractionMethod: 'local-pdf' };
+}
+function isAiQuotaError(error) {
+  return error?.status === 429 || /insufficient_quota|no credits remaining|exceeded your current quota/i.test(error?.message || '');
+}
+
 async function aiExtract($, url) {
   if (!openai) return null;
   const title = $('title').first().text().trim();
@@ -210,16 +241,26 @@ app.post('/api/import', async (req, res) => {
     const $ = cheerio.load(html);
     const structured = structuredRecipe($);
     let recipe = structured ? normalizeStructured(structured, finalUrl) : null;
-    if (!recipe || !recipe.ingredients.length || !recipe.instructions.length) {
-      const aiRecipe = await aiExtract($, finalUrl);
-      if (aiRecipe?.ingredients?.length && aiRecipe?.instructions?.length) recipe = aiRecipe;
+    const complete = r => r?.ingredients?.length && r?.instructions?.length;
+    if (!complete(recipe)) recipe = localRecipeFromHtml($, finalUrl);
+    if (!complete(recipe) && pdfText) recipe = localRecipeFromPdf(pdfText, finalUrl);
+    let aiUnavailable = false;
+    if (!complete(recipe) && openai) {
+      try {
+        const aiRecipe = pdfText ? await aiExtractPdf(pdfText, finalUrl) : await aiExtract($, finalUrl);
+        if (complete(aiRecipe)) recipe = aiRecipe;
+      } catch (error) {
+        if (isAiQuotaError(error)) { aiUnavailable = true; console.warn('Recipe AI extraction skipped: API credits exhausted'); }
+        else throw error;
+      }
     }
-    if (!recipe || !recipe.ingredients.length || !recipe.instructions.length) {
-      return res.status(422).json({ error: 'I could not find a complete recipe on that page. Try another recipe URL or paste the recipe text manually.' });
+    if (!complete(recipe)) {
+      return res.status(422).json({ error: aiUnavailable ? 'Automatic recipe extraction could not finish because AI credits are exhausted. Try Share to Cookbook or paste the recipe text.' : 'I could not find a complete recipe on that page. Try Share to Cookbook or paste the recipe text.', code: aiUnavailable ? 'AI_CREDITS_EXHAUSTED' : 'RECIPE_NOT_FOUND' });
     }
     res.json({ recipe });
   } catch (error) {
-    console.error('Recipe import failed:', error.message);
+    console.error('Recipe import failed:', isAiQuotaError(error) ? 'AI credits exhausted' : error.message);
+    if (isAiQuotaError(error)) return res.status(422).json({ error: 'AI credits are exhausted. Use Share to Cookbook or paste recipe text.', code: 'AI_CREDITS_EXHAUSTED' });
     const status = error.code === 'SOURCE_BLOCKED' ? 422 : /non-public|Local network|protocol|credentials/i.test(error.message) ? 400 : 502;
     res.status(status).json({ error: error.message || 'Could not import this recipe.', code: error.code || 'IMPORT_FAILED' });
   }
